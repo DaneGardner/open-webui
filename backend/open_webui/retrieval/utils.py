@@ -791,7 +791,22 @@ def generate_openai_batch_embeddings(
         if isinstance(RAG_EMBEDDING_PREFIX_FIELD_NAME, str) and isinstance(prefix, str):
             json_data[RAG_EMBEDDING_PREFIX_FIELD_NAME] = prefix
 
-        r = requests.post(
+        def _retry(retries, fn, retry_count=0):
+            try:
+                response = fn()
+                if retry_count < retries and response.status_code == 503:
+                    time.sleep(2 ** retry_count)
+                    return _retry(retries, fn, retry_count + 1)
+            except IOError:
+                if retry_count < retries:
+                    time.sleep(2 ** retry_count)
+                    return _retry(retries, fn, retry_count + 1)
+                else:
+                    raise
+
+            return response
+
+        r = _retry(5, lambda: requests.post(
             f"{url}/embeddings",
             headers={
                 "Content-Type": "application/json",
@@ -808,7 +823,7 @@ def generate_openai_batch_embeddings(
                 ),
             },
             json=json_data,
-        )
+        ))
         r.raise_for_status()
         data = r.json()
         if "data" in data:
